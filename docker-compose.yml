@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  api:
+    build: .
+    container_name: nyc-taxi-api
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=False
+      - DB_PATH=/app/data/artifacts/predictions.db
+      - LOG_LEVEL=INFO
+      - LOG_FILE=/app/logs/api.log
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - taxi-network
+    depends_on:
+      - db
+
+  # Streamlit Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: nyc-taxi-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - STREAMLIT_API_URL=http://api:8000
+      - STREAMLIT_TIMEOUT=30
+    volumes:
+      - ./streamlit_app:/app/streamlit_app
+    networks:
+      - taxi-network
+    depends_on:
+      - api
+    command: streamlit run streamlit_app/app.py
+
+  # Database (optional - using SQLite embedded)
+  db:
+    image: alpine:latest
+    container_name: nyc-taxi-db
+    volumes:
+      - ./data/artifacts:/data
+    networks:
+      - taxi-network
+    command: sh -c "echo 'Database volume ready'"
+
+  # Nginx Reverse Proxy (optional)
+  nginx:
+    image: nginx:alpine
+    container_name: nyc-taxi-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - taxi-network
+    depends_on:
+      - api
+      - frontend
+
+networks:
+  taxi-network:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local
+  logs:
+    driver: local
